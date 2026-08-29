@@ -1,6 +1,9 @@
-"""Cross-encoder reranking — scores (query, chunk) pairs for relevance."""
+"""Cross-encoder reranking — scores (query, chunk) pairs for relevance.
+
+Now implements lazy loading to reduce startup memory footprint.
+"""
 import logging
-from functools import lru_cache
+from threading import Lock
 
 from sentence_transformers import CrossEncoder
 
@@ -8,6 +11,10 @@ from app.core.config import get_settings
 from app.core.exceptions import RerankError
 
 logger = logging.getLogger(__name__)
+
+# Global singleton instance with thread-safe lazy loading
+_reranker_instance = None
+_reranker_lock = Lock()
 
 
 class Reranker:
@@ -51,7 +58,32 @@ class Reranker:
         return valid_candidates[:top_n]
 
 
-@lru_cache
 def get_reranker() -> Reranker:
-    settings = get_settings()
-    return Reranker(settings.reranker_model_name, settings.hf_token)
+    """Lazy-loading singleton accessor — model only loads on first call.
+
+    This significantly reduces startup memory footprint for FastAPI Cloud,
+    as models aren't loaded until the first actual request needs them.
+    Thread-safe to prevent multiple simultaneous loads.
+    """
+    global _reranker_instance
+
+    if _reranker_instance is not None:
+        return _reranker_instance
+
+    with _reranker_lock:
+        # Double-check pattern to avoid loading if another thread just finished
+        if _reranker_instance is not None:
+            return _reranker_instance
+
+        settings = get_settings()
+        if settings.skip_model_loading:
+            logger.warning("Skipping reranker model load due to skip_model_loading=True")
+            raise RerankError("Model loading is disabled")
+
+        _reranker_instance = Reranker(settings.reranker_model_name, settings.hf_token)
+        return _reranker_instance
+
+
+def is_reranker_loaded() -> bool:
+    """Check if the reranker model has been loaded (useful for health checks)."""
+    return _reranker_instance is not None

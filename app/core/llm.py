@@ -6,9 +6,11 @@ the ENTIRE server for every user until that call finishes. We avoid this
 by running the blocking call in a background thread via
 `starlette.concurrency.run_in_threadpool` (used in rag_service.py, not
 here — this file just holds the plain sync calls it wraps).
+
+Now implements lazy loading to reduce startup memory footprint.
 """
 import logging
-from functools import lru_cache
+from threading import Lock
 
 from google import genai
 
@@ -16,6 +18,10 @@ from app.core.config import get_settings
 from app.core.exceptions import RAGBaseError
 
 logger = logging.getLogger(__name__)
+
+# Global singleton instance with thread-safe lazy loading
+_llm_client_instance = None
+_llm_client_lock = Lock()
 
 
 class LLMError(RAGBaseError):
@@ -70,7 +76,28 @@ class GeminiClient:
             logger.error("Gemini stream interrupted mid-response: %s", exc)
 
 
-@lru_cache
 def get_llm_client() -> GeminiClient:
-    settings = get_settings()
-    return GeminiClient(settings.gemini_api_key, settings.llm_model_name)
+    """Lazy-loading singleton accessor — client only loads on first call.
+
+    This significantly reduces startup memory footprint for FastAPI Cloud,
+    as the client isn't initialized until the first actual request needs it.
+    Thread-safe to prevent multiple simultaneous initializations.
+    """
+    global _llm_client_instance
+
+    if _llm_client_instance is not None:
+        return _llm_client_instance
+
+    with _llm_client_lock:
+        # Double-check pattern to avoid initialization if another thread just finished
+        if _llm_client_instance is not None:
+            return _llm_client_instance
+
+        settings = get_settings()
+        _llm_client_instance = GeminiClient(settings.gemini_api_key, settings.llm_model_name)
+        return _llm_client_instance
+
+
+def is_llm_client_loaded() -> bool:
+    """Check if the LLM client has been loaded (useful for health checks)."""
+    return _llm_client_instance is not None

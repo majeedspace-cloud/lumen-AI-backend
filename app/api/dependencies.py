@@ -1,5 +1,8 @@
-"""FastAPI dependency wiring — builds the RAGService from the various singletons."""
-from functools import lru_cache
+"""FastAPI dependency wiring — builds the RAGService from the various singletons.
+
+All components now use lazy loading to reduce startup memory footprint.
+"""
+from threading import Lock
 
 from app.core.config import get_settings
 from app.core.embeddings import get_embedding_model
@@ -11,27 +14,53 @@ from app.services.rag_service import RAGService
 from app.services.session_store import SessionStore, get_session_store
 from app.services.web_search import get_web_search_service
 
+# Global singleton instances with thread-safe lazy loading
+_intent_router_instance = None
+_rag_service_instance = None
+_intent_router_lock = Lock()
+_rag_service_lock = Lock()
 
-@lru_cache
+
 def get_intent_router() -> IntentRouter:
-    return IntentRouter(get_llm_client())
+    """Lazy-loading singleton for IntentRouter."""
+    global _intent_router_instance
+
+    if _intent_router_instance is not None:
+        return _intent_router_instance
+
+    with _intent_router_lock:
+        if _intent_router_instance is not None:
+            return _intent_router_instance
+
+        _intent_router_instance = IntentRouter(get_llm_client())
+        return _intent_router_instance
 
 
-@lru_cache
 def get_rag_service() -> RAGService:
-    settings = get_settings()
-    embedder = get_embedding_model()
-    reranker = get_reranker()
-    retriever = HybridRetriever(embedder, reranker)
-    return RAGService(
-        embedding_model=embedder,
-        reranker=reranker,
-        retriever=retriever,
-        llm_client=get_llm_client(),
-        web_search=get_web_search_service(),
-        intent_router=get_intent_router(),
-        settings=settings,
-    )
+    """Lazy-loading singleton for RAGService."""
+    global _rag_service_instance
+
+    if _rag_service_instance is not None:
+        return _rag_service_instance
+
+    with _rag_service_lock:
+        if _rag_service_instance is not None:
+            return _rag_service_instance
+
+        settings = get_settings()
+        embedder = get_embedding_model()
+        reranker = get_reranker()
+        retriever = HybridRetriever(embedder, reranker)
+        _rag_service_instance = RAGService(
+            embedding_model=embedder,
+            reranker=reranker,
+            retriever=retriever,
+            llm_client=get_llm_client(),
+            web_search=get_web_search_service(),
+            intent_router=get_intent_router(),
+            settings=settings,
+        )
+        return _rag_service_instance
 
 
 def get_store() -> SessionStore:

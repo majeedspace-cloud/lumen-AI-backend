@@ -5,8 +5,10 @@ Run in Docker: see Dockerfile / CMD
 """
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
+import psutil
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -54,8 +56,10 @@ async def lifespan(app: FastAPI):
         settings.session_cleanup_interval_seconds,
         settings.session_ttl_seconds,
     )
+    logger.info("Application started with lazy loading - ML models will load on first request")
     yield
     task.cancel()
+    logger.info("Application shutting down")
 
 
 app = FastAPI(title="RAG Chatbot API", version="1.0.0", lifespan=lifespan)
@@ -96,9 +100,28 @@ async def unhandled_error_handler(request: Request, exc: Exception):
 
 @app.get("/health")
 async def health():
-    """Deliberately NOT behind the API key — hosting platforms and uptime
-    monitors need to reach this without a secret."""
-    return {"status": "ok"}
+    """Lightweight health check that doesn't load ML models.
+
+    Deliberately NOT behind the API key — hosting platforms and uptime
+    monitors need to reach this without a secret. This version is optimized
+    for memory-constrained environments like FastAPI Cloud.
+    """
+    from app.core.embeddings import is_embedding_model_loaded
+    from app.core.llm import is_llm_client_loaded
+    from app.core.reranker import is_reranker_loaded
+
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+
+    return {
+        "status": "ok",
+        "memory_usage_mb": memory_info.rss / 1024 / 1024,
+        "models_loaded": {
+            "embedding": is_embedding_model_loaded(),
+            "reranker": is_reranker_loaded(),
+            "llm": is_llm_client_loaded(),
+        }
+    }
 
 
 app.include_router(router, prefix="/api/v1", dependencies=[Depends(verify_api_key)])

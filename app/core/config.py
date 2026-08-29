@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 60 * 60 * 6  # 6 hours
     session_cleanup_interval_seconds: int = 60 * 30  # how often the TTL sweep runs
 
+    # --- Deployment optimization ---
+    # Set to True to skip loading ML models during startup (useful for
+    # health checks in memory-constrained environments like FastAPI Cloud)
+    skip_model_loading: bool = False
+
     # --- Security ---
     # Comma-separated in .env, e.g. "http://localhost:5173,https://yourapp.com"
     allowed_origins: str = "http://localhost:5173"
