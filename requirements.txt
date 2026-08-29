@@ -1,5 +1,4 @@
-fastapi
-uvicorn[standard]
+fastapi[standard]
 pydantic-settings
 sentence-transformers
 faiss-cpu
