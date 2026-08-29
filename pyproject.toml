@@ -1,0 +1,25 @@
+[project]
+name = "lumen-backend"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]",
+    "pydantic-settings",
+    "sentence-transformers",
+    "faiss-cpu",
+    "scikit-learn",
+    "numpy",
+    "pymupdf",
+    "tavily-python",
+    "google-genai",
+    "python-multipart",
+    "slowapi",
+]
+
+# Tells FastAPI Cloud's auto-discovery EXACTLY where the app object lives,
+# instead of letting it guess from directory structure. Our package is
+# named "app" — same name as the container's own root directory (/app) —
+# which is a very plausible reason its auto-discovery got confused about
+# where the real package starts. This removes that ambiguity entirely.
+[tool.fastapi]
+entrypoint = "app.main:app"
