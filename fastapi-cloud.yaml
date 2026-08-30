@@ -1,0 +1,22 @@
+# FastAPI Cloud deployment configuration
+# This file controls memory, CPU, and scaling settings for your deployment
+
+# Memory per instance in MB
+# Default: 500MB - Increased to 2048MB to handle ML models
+memory: 2048
+
+# CPU allocation (optional)
+# Default: 0.5 vCPU
+# cpu: 1.0
+
+# Instance size presets (alternative to memory/cpu)
+# Options: basic, standard, standard_2x, standard_4x, etc.
+# instance_size: standard_2x
+
+# Worker count (number of processes)
+# Default: auto (platform decides)
+# workers: 1
+
+# Scaling settings
+# min_instances: 0  # Scale to zero when idle (requires Pro plan)
+# max_instances: 3  # Maximum replicas under load
