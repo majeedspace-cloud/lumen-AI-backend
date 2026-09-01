@@ -81,7 +81,7 @@ class RAGService:
 
         text = load_pdf_text(file_path)
         chunks = chunk_text(text, self._settings.chunk_size, self._settings.chunk_overlap)
-        embeddings = self._embedder.encode_many(chunks)
+        embeddings = self._embedder.encode_many(chunks, task_type="RETRIEVAL_DOCUMENT")
 
         if session.vector_store is None:
             session.vector_store = VectorStore(dimension=self._embedder.dimension)
@@ -134,7 +134,7 @@ class RAGService:
 
         new_store = VectorStore(dimension=self._embedder.dimension)
         if keep_chunks:
-            embeddings = self._embedder.encode_many(keep_chunks)
+            embeddings = self._embedder.encode_many(keep_chunks, task_type="RETRIEVAL_DOCUMENT")
             new_store.add(keep_chunks, embeddings, keep_metadata)
 
         session.vector_store = new_store

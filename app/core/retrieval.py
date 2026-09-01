@@ -84,7 +84,7 @@ class HybridRetriever:
 
         keyword_hits = keyword_search(query, store.chunks, store.metadata, k=keyword_k)
 
-        query_embedding = self._embedder.encode_one(query)
+        query_embedding = self._embedder.encode_one(query, task_type="RETRIEVAL_QUERY")
         _distances, faiss_indices = store.search(query_embedding, k=semantic_k)
 
         keyword_ids = [c["chunk_id"] for c in keyword_hits]

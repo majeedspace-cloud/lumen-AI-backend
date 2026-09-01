@@ -1,6 +1,5 @@
 fastapi[standard]
 pydantic-settings
-sentence-transformers
 faiss-cpu
 scikit-learn
 numpy

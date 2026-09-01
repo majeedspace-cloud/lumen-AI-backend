@@ -14,12 +14,13 @@ class Settings(BaseSettings):
     # --- API keys (required, no defaults on purpose so startup fails loudly
     # if you forget to set one instead of silently using a leaked key) ---
     gemini_api_key: str
-    hf_token: str
     tavily_api_key: str
+    # HF_TOKEN removed — no HuggingFace models are loaded anymore now that
+    # embeddings run through the Gemini API instead of a local model.
 
     # --- Models ---
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    reranker_model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    embedding_model_name: str = "gemini-embedding-001"
+    embedding_output_dimensionality: int = 768
     llm_model_name: str = "gemini-3.1-flash-lite"
 
     # --- Chunking ---
@@ -38,11 +39,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     session_ttl_seconds: int = 60 * 60 * 6  # 6 hours
     session_cleanup_interval_seconds: int = 60 * 30  # how often the TTL sweep runs
-
-    # --- Deployment optimization ---
-    # Set to True to skip loading ML models during startup (useful for
-    # health checks in memory-constrained environments like FastAPI Cloud)
-    skip_model_loading: bool = False
 
     # --- Security ---
     # Comma-separated in .env, e.g. "http://localhost:5173,https://yourapp.com"

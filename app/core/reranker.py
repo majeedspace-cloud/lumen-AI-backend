@@ -1,89 +1,24 @@
-"""Cross-encoder reranking — scores (query, chunk) pairs for relevance.
+"""Reranking.
 
-Now implements lazy loading to reduce startup memory footprint.
+v1: a lightweight passthrough — candidates arrive already ordered by RRF
+fusion (keyword + semantic), so "reranking" here just trims to top_n. No
+model, no dependency, no memory cost. This is a deliberate simplification,
+not a missing feature: real cross-encoder or LLM-based reranking is a
+good v2 addition (ties in well with the agent-workflow upgrade), added
+back once the app is live and actual answer quality data justifies it.
 """
 import logging
-from threading import Lock
-
-from sentence_transformers import CrossEncoder
-
-from app.core.config import get_settings
-from app.core.exceptions import RerankError
 
 logger = logging.getLogger(__name__)
 
-# Global singleton instance with thread-safe lazy loading
-_reranker_instance = None
-_reranker_lock = Lock()
-
 
 class Reranker:
-    def __init__(self, model_name: str, hf_token: str):
-        logger.info("Loading reranker model: %s", model_name)
-        try:
-            self._model = CrossEncoder(model_name, token=hf_token)
-        except Exception as exc:
-            raise RerankError(f"Failed to load reranker '{model_name}': {exc}") from exc
-
     def rerank(self, query: str, candidates: list[dict], top_n: int = 5) -> list[dict]:
-        """Score and sort candidate chunks by relevance to the query.
-
-        Args:
-            query: The search query.
-            candidates: List of dicts, each must have a "text" key.
-            top_n: How many top-scoring candidates to return.
-
-        Returns:
-            The top_n candidates, each with a "score" key added, sorted
-            descending by score. Empty list if `candidates` is empty.
+        """Trim to top_n. Kept as a method (not a bare function) so the
+        interface matches a future real reranker without callers changing.
         """
-        if not candidates:
-            return []
-
-        texts = [c["text"] for c in candidates if c.get("text", "").strip()]
-        valid_candidates = [c for c in candidates if c.get("text", "").strip()]
-        if not texts:
-            return []
-
-        try:
-            pairs = [[query, text] for text in texts]
-            scores = self._model.predict(pairs)
-        except Exception as exc:
-            raise RerankError(f"Cross-encoder prediction failed: {exc}") from exc
-
-        for candidate, score in zip(valid_candidates, scores):
-            candidate["score"] = float(score)
-
-        valid_candidates.sort(key=lambda c: c["score"], reverse=True)
-        return valid_candidates[:top_n]
+        return candidates[:top_n]
 
 
 def get_reranker() -> Reranker:
-    """Lazy-loading singleton accessor — model only loads on first call.
-
-    This significantly reduces startup memory footprint for FastAPI Cloud,
-    as models aren't loaded until the first actual request needs them.
-    Thread-safe to prevent multiple simultaneous loads.
-    """
-    global _reranker_instance
-
-    if _reranker_instance is not None:
-        return _reranker_instance
-
-    with _reranker_lock:
-        # Double-check pattern to avoid loading if another thread just finished
-        if _reranker_instance is not None:
-            return _reranker_instance
-
-        settings = get_settings()
-        if settings.skip_model_loading:
-            logger.warning("Skipping reranker model load due to skip_model_loading=True")
-            raise RerankError("Model loading is disabled")
-
-        _reranker_instance = Reranker(settings.reranker_model_name, settings.hf_token)
-        return _reranker_instance
-
-
-def is_reranker_loaded() -> bool:
-    """Check if the reranker model has been loaded (useful for health checks)."""
-    return _reranker_instance is not None
+    return Reranker()

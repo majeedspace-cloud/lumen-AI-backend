@@ -1,88 +1,82 @@
-"""Sentence-embedding model wrapper.
+"""Text embeddings via the Gemini API — no local model, no torch, no GPU deps.
 
-Loads the SentenceTransformer model once per process and reuses it.
-Loading a transformer model is expensive (disk + memory) — you never
-want this happening per-request in a FastAPI handler.
+This replaces a local SentenceTransformer model. That approach needed
+torch + sentence-transformers loaded into RAM (several hundred MB minimum,
+before even loading model weights) — which is exactly what didn't fit on
+any free-tier host (512MB-1GB typical). This version just makes an API
+call, same as we already do for the LLM. No heavy dependency, no local
+model, no memory problem.
 
-Now implements lazy loading to reduce startup memory footprint.
+Uses Gemini's task_type parameter, which measurably improves retrieval
+quality: document chunks are embedded as RETRIEVAL_DOCUMENT, search
+queries as RETRIEVAL_QUERY — the model produces embeddings tuned for
+each role instead of one generic embedding for everything.
 """
 import logging
-from threading import Lock
+from functools import lru_cache
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from google import genai
+from google.genai import types
 
 from app.core.config import get_settings
 from app.core.exceptions import EmbeddingError
 
 logger = logging.getLogger(__name__)
 
-# Global singleton instance with thread-safe lazy loading
-_embedding_model_instance = None
-_embedding_model_lock = Lock()
+# Gemini's embed_content endpoint accepts a batch, but we cap our own batch
+# size defensively rather than assume an undocumented upper limit.
+_MAX_BATCH_SIZE = 100
 
 
 class EmbeddingModel:
-    """Thin wrapper around a SentenceTransformer for encoding text."""
+    """Thin wrapper around Gemini's embed_content API."""
 
-    def __init__(self, model_name: str):
-        logger.info("Loading embedding model: %s", model_name)
-        try:
-            self._model = SentenceTransformer(model_name)
-        except Exception as exc:
-            raise EmbeddingError(f"Failed to load embedding model '{model_name}': {exc}") from exc
+    def __init__(self, api_key: str, model_name: str, output_dimensionality: int):
+        self._client = genai.Client(api_key=api_key)
+        self._model_name = model_name
+        self._dimension = output_dimensionality
 
-    def encode_one(self, text: str) -> np.ndarray:
-        """Embed a single string. Raises EmbeddingError on empty input or model failure."""
-        if not text or not text.strip():
-            raise EmbeddingError("Cannot embed empty text.")
-        try:
-            return self._model.encode(text, normalize_embeddings=True)
-        except Exception as exc:
-            raise EmbeddingError(f"Embedding failed: {exc}") from exc
-
-    def encode_many(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
-        """Embed a batch of strings at once — much faster than a Python loop of encode_one."""
+    def _embed(self, texts: list[str], task_type: str) -> np.ndarray:
         if not texts:
             return np.array([])
         try:
-            return self._model.encode(
-                texts, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False
+            response = self._client.models.embed_content(
+                model=self._model_name,
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=self._dimension,
+                    task_type=task_type,
+                ),
             )
+            return np.array([e.values for e in response.embeddings], dtype="float32")
         except Exception as exc:
-            raise EmbeddingError(f"Batch embedding failed: {exc}") from exc
+            raise EmbeddingError(f"Embedding failed: {exc}") from exc
+
+    def encode_one(self, text: str, task_type: str = "RETRIEVAL_QUERY") -> np.ndarray:
+        """Embed a single string. Raises EmbeddingError on empty input or API failure."""
+        if not text or not text.strip():
+            raise EmbeddingError("Cannot embed empty text.")
+        return self._embed([text], task_type)[0]
+
+    def encode_many(self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> np.ndarray:
+        """Embed a batch of strings, chunked into API-sized batches internally."""
+        if not texts:
+            return np.array([])
+        all_vectors = []
+        for i in range(0, len(texts), _MAX_BATCH_SIZE):
+            batch = texts[i : i + _MAX_BATCH_SIZE]
+            all_vectors.append(self._embed(batch, task_type))
+        return np.vstack(all_vectors)
 
     @property
     def dimension(self) -> int:
-        return self._model.get_sentence_embedding_dimension()
+        return self._dimension
 
 
+@lru_cache
 def get_embedding_model() -> EmbeddingModel:
-    """Lazy-loading singleton accessor — model only loads on first call.
-
-    This significantly reduces startup memory footprint for FastAPI Cloud,
-    as models aren't loaded until the first actual request needs them.
-    Thread-safe to prevent multiple simultaneous loads.
-    """
-    global _embedding_model_instance
-
-    if _embedding_model_instance is not None:
-        return _embedding_model_instance
-
-    with _embedding_model_lock:
-        # Double-check pattern to avoid loading if another thread just finished
-        if _embedding_model_instance is not None:
-            return _embedding_model_instance
-
-        settings = get_settings()
-        if settings.skip_model_loading:
-            logger.warning("Skipping embedding model load due to skip_model_loading=True")
-            raise EmbeddingError("Model loading is disabled")
-
-        _embedding_model_instance = EmbeddingModel(settings.embedding_model_name)
-        return _embedding_model_instance
-
-
-def is_embedding_model_loaded() -> bool:
-    """Check if the embedding model has been loaded (useful for health checks)."""
-    return _embedding_model_instance is not None
+    settings = get_settings()
+    return EmbeddingModel(
+        settings.gemini_api_key, settings.embedding_model_name, settings.embedding_output_dimensionality
+    )

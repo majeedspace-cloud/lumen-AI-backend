@@ -5,7 +5,6 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]",
     "pydantic-settings",
-    "sentence-transformers",
     "faiss-cpu",
     "scikit-learn",
     "numpy",
@@ -14,7 +13,6 @@ dependencies = [
     "google-genai",
     "python-multipart",
     "slowapi",
-    "psutil",
 ]
 
 # Tells FastAPI Cloud's auto-discovery EXACTLY where the app object lives,
