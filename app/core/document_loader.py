@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 
 from app.core.exceptions import DocumentProcessingError
 
@@ -28,7 +28,7 @@ def load_pdf_text(file_path: str | Path) -> str:
         raise DocumentProcessingError(f"File not found: {path}")
 
     try:
-        doc = fitz.open(path)
+        doc = pymupdf.open(path)
     except Exception as exc:
         raise DocumentProcessingError(f"Could not open '{path.name}' as a PDF: {exc}") from exc
 

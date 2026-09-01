@@ -94,6 +94,12 @@ async def unhandled_error_handler(request: Request, exc: Exception):
     )
 
 
+@app.get("/")
+async def root():
+    """Root endpoint - basic service info."""
+    return {"status": "online", "message": "Lumen AI Backend Ready"}
+
+
 @app.get("/health")
 async def health():
     """Deliberately NOT behind the API key — hosting platforms and uptime
