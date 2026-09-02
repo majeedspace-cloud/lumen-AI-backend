@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # --- Chunking ---
     chunk_size: int = 500
     chunk_overlap: int = 200
+    # For larger documents, use smaller chunks to stay within API limits
+    max_chunks_per_document: int = 500
 
     # --- Retrieval ---
     rrf_k_constant: int = 60

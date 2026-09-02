@@ -81,6 +81,15 @@ class RAGService:
 
         text = load_pdf_text(file_path)
         chunks = chunk_text(text, self._settings.chunk_size, self._settings.chunk_overlap)
+        
+        # Check if document would generate too many chunks for API limits
+        if len(chunks) > self._settings.max_chunks_per_document:
+            logger.warning(
+                "Document '%s' would generate %d chunks (max: %d). Truncating to fit API limits.",
+                filename, len(chunks), self._settings.max_chunks_per_document
+            )
+            chunks = chunks[:self._settings.max_chunks_per_document]
+        
         embeddings = self._embedder.encode_many(chunks, task_type="RETRIEVAL_DOCUMENT")
 
         if session.vector_store is None:

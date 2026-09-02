@@ -51,7 +51,15 @@ class EmbeddingModel:
             )
             return np.array([e.values for e in response.embeddings], dtype="float32")
         except Exception as exc:
-            raise EmbeddingError(f"Embedding failed: {exc}") from exc
+            error_msg = str(exc)
+            logger.error(f"Gemini embedding API error: {error_msg}")
+            # Provide more specific error messages for common issues
+            if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+                raise EmbeddingError("PDF too large for processing. Try a smaller document or contact support for larger file handling.") from exc
+            elif "invalid" in error_msg.lower():
+                raise EmbeddingError(f"Invalid content for embedding: {error_msg}") from exc
+            else:
+                raise EmbeddingError(f"Embedding failed: {error_msg}") from exc
 
     def encode_one(self, text: str, task_type: str = "RETRIEVAL_QUERY") -> np.ndarray:
         """Embed a single string. Raises EmbeddingError on empty input or API failure."""
