@@ -42,6 +42,40 @@ class DeleteDocumentResponse(BaseModel):
     deleted: bool
 
 
+class SessionInfo(BaseModel):
+    session_id: str
+    name: str
+    last_active: float
+    message_count: int
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionInfo]
+
+
+class CreateSessionRequest(BaseModel):
+    name: str = Field(default="New Chat", description="Name for the new session")
+
+
+class CreateSessionResponse(BaseModel):
+    session_id: str
+    name: str
+
+
+class RenameSessionRequest(BaseModel):
+    new_name: str = Field(..., description="New name for the session")
+
+
+class RenameSessionResponse(BaseModel):
+    session_id: str
+    name: str
+
+
+class DeleteSessionResponse(BaseModel):
+    session_id: str
+    deleted: bool
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str

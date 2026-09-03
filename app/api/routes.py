@@ -18,9 +18,15 @@ from app.api.dependencies import get_rag_service, get_store
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
+    CreateSessionRequest,
+    CreateSessionResponse,
     DeleteDocumentResponse,
+    DeleteSessionResponse,
     DocumentInfo,
     DocumentListResponse,
+    RenameSessionRequest,
+    RenameSessionResponse,
+    SessionListResponse,
     UploadResponse,
 )
 from app.core.config import get_settings
@@ -166,3 +172,50 @@ async def delete_document(
         raise HTTPException(status_code=404, detail=f"'{filename}' not found in this session.")
     store.save(session)
     return DeleteDocumentResponse(filename=filename, deleted=True)
+
+
+# ---------------- Session Management Endpoints ----------------
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(store: SessionStore = Depends(get_store)):
+    """Return list of all sessions with their metadata for the sidebar."""
+    sessions = await run_in_threadpool(store.list_sessions)
+    return SessionListResponse(sessions=sessions)
+
+
+@router.post("/sessions", response_model=CreateSessionResponse)
+async def create_session(
+    body: CreateSessionRequest,
+    store: SessionStore = Depends(get_store),
+):
+    """Create a new session with an optional name."""
+    import uuid
+    session_id = str(uuid.uuid4())
+    session = store.get_or_create(session_id)
+    session.name = body.name
+    store.save(session)
+    logger.info("Created new session: %s with name '%s'", session_id, body.name)
+    return CreateSessionResponse(session_id=session_id, name=body.name)
+
+
+@router.put("/sessions/{session_id}/rename", response_model=RenameSessionResponse)
+async def rename_session(
+    session_id: str,
+    body: RenameSessionRequest,
+    store: SessionStore = Depends(get_store),
+):
+    """Rename an existing session."""
+    await run_in_threadpool(store.rename_session, session_id, body.new_name)
+    session = store.get_or_create(session_id)
+    return RenameSessionResponse(session_id=session_id, name=body.new_name)
+
+
+@router.delete("/sessions/{session_id}", response_model=DeleteSessionResponse)
+async def delete_session(
+    session_id: str,
+    store: SessionStore = Depends(get_store),
+):
+    """Delete a session and all its data."""
+    await run_in_threadpool(store.delete, session_id)
+    logger.info("Deleted session: %s", session_id)
+    return DeleteSessionResponse(session_id=session_id, deleted=True)

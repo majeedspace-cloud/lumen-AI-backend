@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SessionData:
     session_id: str
+    name: str = "New Chat"  # Add session name for Named Sessions feature
     chat_history: list[dict] = field(default_factory=list)
     vector_store: VectorStore | None = None
     processed_files: set[tuple[str, int]] = field(default_factory=set)
@@ -43,6 +44,16 @@ class SessionStore(ABC):
     @abstractmethod
     def cleanup_expired(self, ttl_seconds: int) -> int:
         """Remove sessions inactive longer than ttl_seconds. Returns count removed."""
+        ...
+
+    @abstractmethod
+    def list_sessions(self) -> list[dict]:
+        """Return list of all sessions with their metadata (id, name, last_active)."""
+        ...
+
+    @abstractmethod
+    def rename_session(self, session_id: str, new_name: str) -> None:
+        """Rename a session."""
         ...
 
 
@@ -84,6 +95,28 @@ class InMemorySessionStore(SessionStore):
         if expired:
             logger.info("Cleaned up %d expired sessions", len(expired))
         return len(expired)
+
+    def list_sessions(self) -> list[dict]:
+        """Return list of all sessions with their metadata."""
+        with self._lock:
+            return [
+                {
+                    "session_id": session_id,
+                    "name": session.name,
+                    "last_active": session.last_active,
+                    "message_count": len(session.chat_history),
+                }
+                for session_id, session in self._sessions.items()
+            ]
+
+    def rename_session(self, session_id: str, new_name: str) -> None:
+        """Rename a session."""
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id].name = new_name
+                logger.info("Renamed session %s to '%s'", session_id, new_name)
+            else:
+                logger.warning("Attempted to rename non-existent session: %s", session_id)
 
 
 @lru_cache
