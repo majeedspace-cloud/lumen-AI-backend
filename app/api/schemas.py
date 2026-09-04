@@ -49,6 +49,13 @@ class SessionInfo(BaseModel):
     message_count: int
 
 
+class SessionDetailResponse(BaseModel):
+    session_id: str
+    name: str
+    chat_history: list[dict]
+    documents: list[DocumentInfo]
+
+
 class SessionListResponse(BaseModel):
     sessions: list[SessionInfo]
 

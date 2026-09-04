@@ -36,6 +36,11 @@ class SessionStore(ABC):
     def get_or_create(self, session_id: str) -> SessionData: ...
 
     @abstractmethod
+    def get(self, session_id: str) -> SessionData | None:
+        """Get session data without creating if it doesn't exist."""
+        ...
+
+    @abstractmethod
     def save(self, session_data: SessionData) -> None: ...
 
     @abstractmethod
@@ -76,6 +81,10 @@ class InMemorySessionStore(SessionStore):
                 self._sessions[session_id] = SessionData(session_id=session_id)
             self._sessions[session_id].touch()
             return self._sessions[session_id]
+
+    def get(self, session_id: str) -> SessionData | None:
+        with self._lock:
+            return self._sessions.get(session_id)
 
     def save(self, session_data: SessionData) -> None:
         with self._lock:
