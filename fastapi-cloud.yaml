@@ -2,8 +2,8 @@
 # This file controls memory, CPU, and scaling settings for your deployment
 
 # Memory per instance in MB
-# Default: 500MB - Increased to 2048MB to handle ML models
-memory: 2048
+# Reduced to 512MB (default) since we removed local ML models and use API-based approach
+memory: 512
 
 # CPU allocation (optional)
 # Default: 0.5 vCPU

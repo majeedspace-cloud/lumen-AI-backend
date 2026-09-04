@@ -236,6 +236,10 @@ async def rename_session(
     store: SessionStore = Depends(get_store),
 ):
     """Rename an existing session."""
+    session = await run_in_threadpool(store.get, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
     await run_in_threadpool(store.rename_session, session_id, body.new_name)
     session = store.get_or_create(session_id)
     return RenameSessionResponse(session_id=session_id, name=body.new_name)
