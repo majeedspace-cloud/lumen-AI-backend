@@ -163,7 +163,7 @@ class RAGService:
         logger.info("Query classified as: %s", intent.value)
 
         if intent == Intent.CASUAL:
-            answer = self._llm.generate(CASUAL_SYSTEM_PROMPT, query)
+            answer = self._llm.generate(CASUAL_SYSTEM_PROMPT, query, history=session.chat_history)
             self._append_history(session, query, answer)
             return {"answer": answer, "sources": {"pdf": [], "web": []}}
 
@@ -204,7 +204,7 @@ class RAGService:
 
         context = "\n\n".join(context_parts) if context_parts else "(no context found)"
         user_message = f"Context:\n{context}\n\nQuestion: {query}"
-        answer = self._llm.generate(SYSTEM_PROMPT, user_message)
+        answer = self._llm.generate(SYSTEM_PROMPT, user_message, history=session.chat_history)
 
         self._append_history(session, query, answer)
         return {"answer": answer, "sources": {"pdf": pdf_sources, "web": web_sources}}
@@ -233,7 +233,7 @@ class RAGService:
 
         if intent == Intent.CASUAL:
             full_answer = ""
-            for chunk in self._llm.generate_stream(CASUAL_SYSTEM_PROMPT, query):
+            for chunk in self._llm.generate_stream(CASUAL_SYSTEM_PROMPT, query, history=session.chat_history):
                 full_answer += chunk
                 yield {"type": "token", "text": chunk}
             self._append_history(session, query, full_answer)
@@ -284,7 +284,7 @@ class RAGService:
         user_message = f"Context:\n{context}\n\nQuestion: {query}"
 
         full_answer = ""
-        for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message):
+        for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message, history=session.chat_history):
             full_answer += chunk
             yield {"type": "token", "text": chunk}
 

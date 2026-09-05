@@ -11,6 +11,7 @@ import logging
 from functools import lru_cache
 
 from google import genai
+from google.genai import types
 
 from app.core.config import get_settings
 from app.core.exceptions import RAGBaseError
@@ -22,17 +23,44 @@ class LLMError(RAGBaseError):
     """Raised when a call to the LLM fails."""
 
 
+def _build_contents(history: list[dict] | None, user_message: str) -> list[types.Content]:
+    """Turns saved chat history + the current message into what Gemini's
+    multi-turn API actually expects: a list of Content objects, each
+    tagged with who said it.
+
+    This is the actual fix for "it forgets everything" — previously we
+    only ever sent the current message as a bare string, so from Gemini's
+    point of view every single call looked like the start of a brand new
+    conversation. `history` here is session.chat_history, which was
+    already being saved correctly — it just was never being read back.
+    """
+    contents = []
+    for msg in history or []:
+        role = "model" if msg["role"] == "assistant" else "user"
+        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg["content"])]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
+    return contents
+
+
 class GeminiClient:
     def __init__(self, api_key: str, model_name: str):
         self._client = genai.Client(api_key=api_key)
         self._model_name = model_name
 
-    def generate(self, system_prompt: str, user_message: str, temperature: float = 0.3) -> str:
-        """Single-turn generation. Raises LLMError on failure — never fails silently."""
+    def generate(
+        self, system_prompt: str, user_message: str, temperature: float = 0.3, history: list[dict] | None = None
+    ) -> str:
+        """Single-turn generation. Raises LLMError on failure — never fails silently.
+
+        Pass `history` (session.chat_history) to make this call aware of
+        prior turns in the conversation — omit it for a genuinely
+        stateless call (e.g. the intent classifier, which should judge
+        each message fresh, not be biased by earlier ones).
+        """
         try:
             response = self._client.models.generate_content(
                 model=self._model_name,
-                contents=user_message,
+                contents=_build_contents(history, user_message),
                 config={"system_instruction": system_prompt, "temperature": temperature},
             )
             return response.text or ""
@@ -40,7 +68,9 @@ class GeminiClient:
             logger.error("Gemini call failed: %s", exc)
             raise LLMError(f"LLM generation failed: {exc}") from exc
 
-    def generate_stream(self, system_prompt: str, user_message: str, temperature: float = 0.3):
+    def generate_stream(
+        self, system_prompt: str, user_message: str, temperature: float = 0.3, history: list[dict] | None = None
+    ):
         """Streaming generation — yields text chunks as they arrive instead of
         waiting for the full response. This is a regular (sync) Python
         generator; FastAPI/Starlette knows how to consume sync generators
@@ -55,7 +85,7 @@ class GeminiClient:
         try:
             stream = self._client.models.generate_content_stream(
                 model=self._model_name,
-                contents=user_message,
+                contents=_build_contents(history, user_message),
                 config={"system_instruction": system_prompt, "temperature": temperature},
             )
         except Exception as exc:
