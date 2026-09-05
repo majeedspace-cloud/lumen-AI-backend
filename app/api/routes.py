@@ -49,16 +49,7 @@ async def chat(
     store: SessionStore = Depends(get_store),
 ):
     session = store.get_or_create(body.session_id)
-    
-    # Auto-name session if it's still "New Chat" and this is the first message
-    if session.name == "New Chat" and len(session.chat_history) == 0:
-        # Generate a name from the first few words of the query
-        words = body.query.split()[:4]
-        auto_name = " ".join(words).capitalize()
-        if len(auto_name) > 30:
-            auto_name = auto_name[:27] + "..."
-        session.name = auto_name
-    
+    session.maybe_auto_name(body.query)
     result = await run_in_threadpool(rag.chat, session, body.query)
     store.save(session)
     return ChatResponse(
@@ -139,6 +130,7 @@ async def chat_stream(
     just handled for us automatically here.
     """
     session = store.get_or_create(body.session_id)
+    session.maybe_auto_name(body.query)
 
     def event_stream():
         for event in rag.chat_stream(session, body.query):

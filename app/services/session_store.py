@@ -30,6 +30,19 @@ class SessionData:
     def touch(self) -> None:
         self.last_active = time.time()
 
+    def maybe_auto_name(self, query: str) -> None:
+        """Auto-name the session from its first message, if it's still
+        the default placeholder. Called from both /chat and /chat/stream —
+        living here (not duplicated in each route) means there's exactly
+        one place this logic can go wrong, not two.
+        """
+        if self.name == "New Chat" and len(self.chat_history) == 0:
+            words = query.split()[:4]
+            auto_name = " ".join(words).capitalize()
+            if len(auto_name) > 30:
+                auto_name = auto_name[:27] + "..."
+            self.name = auto_name
+
 
 class SessionStore(ABC):
     @abstractmethod
