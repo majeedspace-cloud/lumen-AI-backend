@@ -156,9 +156,13 @@ async def list_documents(
     store: SessionStore = Depends(get_store),
 ):
     """Powers the sidebar's document list — filenames + chunk counts for this session."""
-    session = store.get_or_create(session_id)
-    docs = await run_in_threadpool(rag.list_documents, session)
-    return DocumentListResponse(documents=[DocumentInfo(**d) for d in docs])
+    try:
+        session = store.get_or_create(session_id)
+        docs = await run_in_threadpool(rag.list_documents, session)
+        return DocumentListResponse(documents=[DocumentInfo(**d) for d in docs])
+    except Exception as exc:
+        logger.warning("Could not list documents for session %s: %s", session_id, exc)
+        return DocumentListResponse(documents=[])
 
 
 @router.delete("/documents/{filename}", response_model=DeleteDocumentResponse)
