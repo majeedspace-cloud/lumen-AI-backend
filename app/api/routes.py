@@ -193,7 +193,7 @@ async def list_sessions(
     # Filter out blank sessions (no chat messages AND no uploaded PDFs)
     active_sessions = []
     for sess in all_sessions:
-        session_obj = store.get(sess.session_id)
+        session_obj = store.get(sess["session_id"])
         if session_obj:
             has_messages = len(session_obj.chat_history) > 0
             has_docs = len(rag.list_documents(session_obj)) > 0
