@@ -204,11 +204,16 @@ async def get_session_detail(
     rag: RAGService = Depends(get_rag_service),
     store: SessionStore = Depends(get_store),
 ):
-    """Get detailed session information including chat history and documents."""
-    session = await run_in_threadpool(store.get, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
+    """Get detailed session information including chat history and documents.
+
+    Uses get_or_create rather than a strict lookup: a session ID freshly
+    generated in the browser (e.g. right after "New Chat") legitimately
+    doesn't exist on the backend yet — that's correct, not an error. This
+    materializes it as an empty session instead of 404ing, matching the
+    "don't persist until it's actually used" design the frontend expects.
+    """
+    session = await run_in_threadpool(store.get_or_create, session_id)
+
     docs = await run_in_threadpool(rag.list_documents, session)
     return SessionDetailResponse(
         session_id=session.session_id,
