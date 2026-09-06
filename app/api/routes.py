@@ -176,15 +176,27 @@ async def delete_document(
     store.save(session)
     return DeleteDocumentResponse(filename=filename, deleted=True)
 
-
 # ---------------- Session Management Endpoints ----------------
 
 @router.get("/sessions", response_model=SessionListResponse)
-async def list_sessions(store: SessionStore = Depends(get_store)):
-    """Return list of all sessions with their metadata for the sidebar."""
-    sessions = await run_in_threadpool(store.list_sessions)
-    return SessionListResponse(sessions=sessions)
-
+async def list_sessions(
+    store: SessionStore = Depends(get_store),
+    rag: RAGService = Depends(get_rag_service),
+):
+    """Return list of non-empty sessions for the sidebar."""
+    all_sessions = await run_in_threadpool(store.list_sessions)
+    
+    # Filter out blank sessions (no chat messages AND no uploaded PDFs)
+    active_sessions = []
+    for sess in all_sessions:
+        session_obj = store.get(sess.session_id)
+        if session_obj:
+            has_messages = len(session_obj.chat_history) > 0
+            has_docs = len(rag.list_documents(session_obj)) > 0
+            if has_messages or has_docs:
+                active_sessions.append(sess)
+                
+    return SessionListResponse(sessions=active_sessions)
 
 @router.get("/sessions/{session_id}", response_model=SessionDetailResponse)
 async def get_session_detail(
