@@ -48,7 +48,12 @@ class GeminiClient:
         self._model_name = model_name
 
     def generate(
-        self, system_prompt: str, user_message: str, temperature: float = 0.3, history: list[dict] | None = None
+        self,
+        system_prompt: str,
+        user_message: str,
+        temperature: float = 0.3,
+        history: list[dict] | None = None,
+        model: str | None = None,
     ) -> str:
         """Single-turn generation. Raises LLMError on failure — never fails silently.
 
@@ -56,10 +61,14 @@ class GeminiClient:
         prior turns in the conversation — omit it for a genuinely
         stateless call (e.g. the intent classifier, which should judge
         each message fresh, not be biased by earlier ones).
+
+        Pass `model` to use a different model than this client's default
+        for just this one call (e.g. the reranker uses a cheaper/faster
+        model for judging relevance than the main answer-generation model).
         """
         try:
             response = self._client.models.generate_content(
-                model=self._model_name,
+                model=model or self._model_name,
                 contents=_build_contents(history, user_message),
                 config={"system_instruction": system_prompt, "temperature": temperature},
             )

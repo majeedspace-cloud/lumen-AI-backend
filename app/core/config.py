@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     embedding_model_name: str = "gemini-embedding-001"
     embedding_output_dimensionality: int = 768
     llm_model_name: str = "gemini-3.1-flash-lite"
+    reranker_model_name: str = "gemini-3.1-flash-lite"
 
     # --- Chunking ---
     chunk_size: int = 500
@@ -35,6 +36,10 @@ class Settings(BaseSettings):
     semantic_search_top_k: int = 20
     rerank_top_n: int = 5
     low_confidence_threshold: float = -2.0
+
+    # --- Multi-step Agent ---
+    enable_multi_step_agent: bool = True
+    agent_max_steps: int = 5
 
     # --- Session storage backend: "memory" or "redis" ---
     session_backend: str = "memory"

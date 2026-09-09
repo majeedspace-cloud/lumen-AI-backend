@@ -41,6 +41,8 @@ class SessionData:
             auto_name = " ".join(words).capitalize()
             if len(auto_name) > 30:
                 auto_name = auto_name[:27] + "..."
+            else:
+                auto_name = auto_name + "..."
             self.name = auto_name
 
 

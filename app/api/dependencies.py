@@ -21,13 +21,14 @@ def get_intent_router() -> IntentRouter:
 def get_rag_service() -> RAGService:
     settings = get_settings()
     embedder = get_embedding_model()
-    reranker = get_reranker()
+    llm_client = get_llm_client()
+    reranker = get_reranker(llm_client, settings.reranker_model_name)
     retriever = HybridRetriever(embedder, reranker)
     return RAGService(
         embedding_model=embedder,
         reranker=reranker,
         retriever=retriever,
-        llm_client=get_llm_client(),
+        llm_client=llm_client,
         web_search=get_web_search_service(),
         intent_router=get_intent_router(),
         settings=settings,
