@@ -1,7 +1,0 @@
-# DEPRECATED — no longer needed.
-#
-# This used to request 2048MB to fit local ML models (sentence-transformers
-# + torch). Those were removed when embeddings moved to the Gemini API —
-# the app now runs comfortably on FastAPI Cloud's default free-tier memory.
-# Safe to delete this file entirely; it's left empty on purpose so nothing
-# it used to configure silently persists.
