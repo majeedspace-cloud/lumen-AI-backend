@@ -13,21 +13,24 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.api.dependencies import get_rag_service, get_store
+from app.api.dependencies import get_memory_store, get_rag_service, get_store
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     CreateSessionRequest,
     CreateSessionResponse,
     DeleteDocumentResponse,
+    DeleteMemoryResponse,
     DeleteSessionResponse,
     DocumentInfo,
     DocumentListResponse,
+    MemoryResponse,
     RenameSessionRequest,
     RenameSessionResponse,
     SessionDetailResponse,
     SessionInfo,
     SessionListResponse,
+    UpdateMemorySettingsRequest,
     UploadResponse,
 )
 from app.core.config import get_settings
@@ -50,7 +53,7 @@ async def chat(
 ):
     session = store.get_or_create(body.session_id)
     session.maybe_auto_name(body.query)
-    result = await run_in_threadpool(rag.chat, session, body.query)
+    result = await run_in_threadpool(rag.chat, session, body.query, body.device_id)
     store.save(session)
     return ChatResponse(
         answer=result["answer"],
@@ -133,7 +136,7 @@ async def chat_stream(
     session.maybe_auto_name(body.query)
 
     def event_stream():
-        for event in rag.chat_stream(session, body.query):
+        for event in rag.chat_stream(session, body.query, body.device_id):
             event_type = event["type"]
             yield _format_sse(event_type, event)
         store.save(session)
@@ -267,3 +270,46 @@ async def delete_session(
     await run_in_threadpool(store.delete, session_id)
     logger.info("Deleted session: %s", session_id)
     return DeleteSessionResponse(session_id=session_id, deleted=True)
+
+
+# ---------------- Memory Management Endpoints ----------------
+
+@router.get("/memory/{device_id}", response_model=MemoryResponse)
+async def get_memory(
+    device_id: str,
+    memory_store = Depends(get_memory_store),
+):
+    """Get the current memory facts and enabled status for a device."""
+    memory = memory_store.get_or_create(device_id)
+    return MemoryResponse(
+        device_id=device_id,
+        facts=memory.facts,
+        enabled=memory.enabled,
+    )
+
+
+@router.put("/memory/{device_id}", response_model=MemoryResponse)
+async def update_memory_settings(
+    device_id: str,
+    body: UpdateMemorySettingsRequest,
+    memory_store = Depends(get_memory_store),
+):
+    """Update memory enabled/disabled setting for a device."""
+    memory_store.set_enabled(device_id, body.enabled)
+    memory = memory_store.get_or_create(device_id)
+    return MemoryResponse(
+        device_id=device_id,
+        facts=memory.facts,
+        enabled=memory.enabled,
+    )
+
+
+@router.delete("/memory/{device_id}", response_model=DeleteMemoryResponse)
+async def clear_memory(
+    device_id: str,
+    memory_store = Depends(get_memory_store),
+):
+    """Clear all stored facts for a device (does not change enabled setting)."""
+    memory_store.clear_facts(device_id)
+    logger.info("Cleared memory facts for device: %s", device_id)
+    return DeleteMemoryResponse(device_id=device_id, deleted=True)

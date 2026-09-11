@@ -8,6 +8,9 @@ _settings = get_settings()
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-generated session/conversation ID")
+    device_id: str | None = Field(
+        default=None, description="Long-lived device ID for cross-session memory (optional)"
+    )
     query: str = Field(
         ...,
         min_length=1,
@@ -86,3 +89,18 @@ class DeleteSessionResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: str
+
+
+class MemoryResponse(BaseModel):
+    device_id: str
+    facts: dict
+    enabled: bool
+
+
+class UpdateMemorySettingsRequest(BaseModel):
+    enabled: bool = Field(..., description="True to let the assistant remember/use facts about you, False to fully opt out")
+
+
+class DeleteMemoryResponse(BaseModel):
+    device_id: str
+    deleted: bool

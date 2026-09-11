@@ -25,7 +25,9 @@ from app.core.retrieval import HybridRetriever
 from app.core.vector_store import VectorStore
 from app.services.agent import MultiStepAgent
 from app.services.intent_router import Intent, IntentRouter
+from app.services.memory_extractor import MemoryExtractor
 from app.services.session_store import SessionData
+from app.services.user_memory_store import UserMemoryStore
 from app.services.web_search import WebSearchService
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,8 @@ class RAGService:
         web_search: WebSearchService,
         intent_router: IntentRouter,
         settings: Settings,
+        user_memory_store: UserMemoryStore | None = None,
+        memory_extractor: MemoryExtractor | None = None,
     ):
         self._embedder = embedding_model
         self._reranker = reranker
@@ -49,6 +53,8 @@ class RAGService:
         self._web_search = web_search
         self._intent_router = intent_router
         self._settings = settings
+        self._user_memory_store = user_memory_store
+        self._memory_extractor = memory_extractor
         
         # Initialize multi-step agent if enabled
         if settings.enable_multi_step_agent:
@@ -64,6 +70,40 @@ class RAGService:
             )
         else:
             self._agent = None
+
+    # ---------------- Cross-session memory ----------------
+
+    def _get_memory_block(self, device_id: str | None) -> str:
+        """A short text block describing what's known about this person,
+        prepended to whatever message goes to the LLM. Empty string if
+        memory is off, unavailable, or nothing's been learned yet — so
+        callers can always safely prepend this with no special-casing.
+        """
+        if not device_id or self._user_memory_store is None:
+            return ""
+        memory = self._user_memory_store.get_or_create(device_id)
+        if not memory.enabled or not memory.facts:
+            return ""
+        facts_text = ", ".join(f"{k}: {v}" for k, v in memory.facts.items())
+        return f"[What you remember about this user: {facts_text}]\n\n"
+
+    def _update_memory(self, device_id: str | None, query: str) -> None:
+        """Runs after answering — extracts any new durable fact from the
+        user's message and merges it into their stored profile. Silently
+        does nothing if memory is off/unavailable; never blocks a chat
+        response over a failed extraction (see MemoryExtractor.extract).
+        """
+        if not device_id or self._user_memory_store is None or self._memory_extractor is None:
+            return
+        memory = self._user_memory_store.get_or_create(device_id)
+        if not memory.enabled:
+            logger.debug("Memory disabled for device %s, skipping extraction", device_id)
+            return
+        new_facts = self._memory_extractor.extract(query)
+        if new_facts:
+            memory.facts = self._memory_extractor.merge(memory.facts, new_facts)
+            self._user_memory_store.save(memory)
+            logger.info("Learned new fact(s) for device %s: %s", device_id, list(new_facts.keys()))
 
     # ---------------- Document ingestion ----------------
 
@@ -151,7 +191,7 @@ class RAGService:
 
     # ---------------- Chat ----------------
 
-    def chat(self, session: SessionData, query: str) -> dict:
+    def chat(self, session: SessionData, query: str, device_id: str | None = None) -> dict:
         """Answer a query, routing via intent classification instead of keyword rules.
 
         Returns {"answer": str, "sources": {"pdf": [...], "web": [...]}}.
@@ -159,10 +199,14 @@ class RAGService:
         has_pdf = session.vector_store is not None and not session.vector_store.is_empty
         intent = self._intent_router.classify(query, has_pdf)
         logger.info("Query classified as: %s", intent.value)
+        memory_block = self._get_memory_block(device_id)
 
         if intent == Intent.CASUAL:
-            answer = self._llm.generate(CASUAL_SYSTEM_PROMPT, query, history=session.chat_history)
+            answer = self._llm.generate(
+                CASUAL_SYSTEM_PROMPT, memory_block + query, history=session.chat_history
+            )
             self._append_history(session, query, answer)
+            self._update_memory(device_id, query)
             return {"answer": answer, "sources": {"pdf": [], "web": []}}
 
         # Use multi-step agent if enabled, otherwise fall back to single-pass.
@@ -171,8 +215,9 @@ class RAGService:
         # now it plans directly from what we already determined above.
         if self._agent:
             logger.info("Using multi-step agent for query")
-            result = self._agent.run(query, session.vector_store, session.chat_history, intent)
+            result = self._agent.run(query, session.vector_store, session.chat_history, intent, memory_block)
             self._append_history(session, query, result["answer"])
+            self._update_memory(device_id, query)
             return {
                 "answer": result["answer"],
                 "sources": result["sources"],
@@ -215,15 +260,16 @@ class RAGService:
                     logger.warning("Web search failed, continuing without it: %s", exc)
 
             context = "\n\n".join(context_parts) if context_parts else "(no context found)"
-            user_message = f"Context:\n{context}\n\nQuestion: {query}"
+            user_message = f"{memory_block}Context:\n{context}\n\nQuestion: {query}"
             answer = self._llm.generate(SYSTEM_PROMPT, user_message, history=session.chat_history)
 
             self._append_history(session, query, answer)
+            self._update_memory(device_id, query)
             return {"answer": answer, "sources": {"pdf": pdf_sources, "web": web_sources}}
 
     # ---------------- Streaming chat ----------------
 
-    def chat_stream(self, session: SessionData, query: str):
+    def chat_stream(self, session: SessionData, query: str, device_id: str | None = None):
         """Generator version of chat() for streaming (SSE) responses.
 
         Yields small dicts describing what's happening, in order:
@@ -241,13 +287,17 @@ class RAGService:
 
         intent = self._intent_router.classify(query, has_pdf)
         logger.info("Query classified as: %s", intent.value)
+        memory_block = self._get_memory_block(device_id)
 
         if intent == Intent.CASUAL:
             full_answer = ""
-            for chunk in self._llm.generate_stream(CASUAL_SYSTEM_PROMPT, query, history=session.chat_history):
+            for chunk in self._llm.generate_stream(
+                CASUAL_SYSTEM_PROMPT, memory_block + query, history=session.chat_history
+            ):
                 full_answer += chunk
                 yield {"type": "token", "text": chunk}
             self._append_history(session, query, full_answer)
+            self._update_memory(device_id, query)
             yield {"type": "done"}
             return
 
@@ -257,11 +307,14 @@ class RAGService:
         if self._agent:
             logger.info("Using multi-step agent for streaming query")
             full_answer = ""
-            for event in self._agent.run_stream(query, session.vector_store, session.chat_history, intent):
+            for event in self._agent.run_stream(
+                query, session.vector_store, session.chat_history, intent, memory_block
+            ):
                 yield event
                 if event["type"] == "token":
                     full_answer += event["text"]
             self._append_history(session, query, full_answer)
+            self._update_memory(device_id, query)
             return
         else:
             # Original single-pass logic
@@ -306,7 +359,7 @@ class RAGService:
             yield {"type": "status", "text": "Writing your answer..."}
 
             context = "\n\n".join(context_parts) if context_parts else "(no context found)"
-            user_message = f"Context:\n{context}\n\nQuestion: {query}"
+            user_message = f"{memory_block}Context:\n{context}\n\nQuestion: {query}"
 
             full_answer = ""
             for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message, history=session.chat_history):
@@ -314,6 +367,7 @@ class RAGService:
                 yield {"type": "token", "text": chunk}
 
             self._append_history(session, query, full_answer)
+            self._update_memory(device_id, query)
             yield {"type": "done"}
 
     @staticmethod

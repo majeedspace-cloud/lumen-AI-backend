@@ -107,6 +107,7 @@ class MultiStepAgent:
         vector_store: Optional[VectorStore],
         chat_history: list[dict],
         intent: Intent,
+        memory_block: str = "",
     ):
         """The one real implementation. Yields status/sources/token/done
         events — routes.py turns each into an SSE event for the frontend.
@@ -158,7 +159,7 @@ class MultiStepAgent:
                 + "\n\n".join(f"- {r['title']}: {r['content'][:300]}" for r in result.web_results)
             )
         context = "\n\n".join(context_parts) if context_parts else "(no context found)"
-        user_message = f"Context:\n{context}\n\nQuestion: {query}"
+        user_message = f"{memory_block}Context:\n{context}\n\nQuestion: {query}"
 
         for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message, history=chat_history):
             yield {"type": "token", "text": chunk}
@@ -171,6 +172,7 @@ class MultiStepAgent:
         vector_store: Optional[VectorStore],
         chat_history: list[dict],
         intent: Intent,
+        memory_block: str = "",
     ) -> dict:
         """Non-streaming version. Drains run_stream() instead of
         duplicating its logic — one implementation, not two."""
@@ -178,7 +180,7 @@ class MultiStepAgent:
         pdf_sources: list[str] = []
         web_results: list[dict] = []
 
-        for event in self.run_stream(query, vector_store, chat_history, intent):
+        for event in self.run_stream(query, vector_store, chat_history, intent, memory_block):
             if event["type"] == "token":
                 full_answer += event["text"]
             elif event["type"] == "sources":
