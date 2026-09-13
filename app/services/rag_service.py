@@ -285,6 +285,7 @@ class RAGService:
         """
         has_pdf = session.vector_store is not None and not session.vector_store.is_empty
 
+        yield {"type": "status", "text": "Reading your question..."}
         intent = self._intent_router.classify(query, has_pdf)
         logger.info("Query classified as: %s", intent.value)
         memory_block = self._get_memory_block(device_id)
